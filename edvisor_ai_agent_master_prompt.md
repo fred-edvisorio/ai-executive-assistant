@@ -1,4 +1,4 @@
-# EDVISOR AI OPERATIONS AGENT — MASTER COMMAND PROMPT (v1.0)
+# EDVISOR AI OPERATIONS AGENT — MASTER COMMAND PROMPT (v1.01)
 
 > **Environment:** n8n Automation Platform
 > **Model:** Anthropic Claude (via n8n AI Agent node)
