@@ -518,7 +518,7 @@ Issues the agent discovers that require human attention.
 
 | Trigger Source | Event | Your Response |
 |---------------|-------|---------------|
-| Attio webhook | Funnel stage manually changed by human | Re-validate against CHI data. If human override conflicts with signals, log discrepancy but respect human override. |
+| Attio webhook | Restrict manual funnel changes by human | If an attempt is made to change the funnel stage manually bu a human, log the attempted event and send a slack message to the "#success-school" channel notifying that a change was attempted. 
 | Stripe webhook | Payment failed | Immediately flag churn risk. Notify Slack. Create Linear task. |
 | Stripe webhook | Subscription cancelled | Update Attio to "Churned". Log. Notify Sales + Success owners. |
 | Pylon webhook | New support ticket with negative sentiment | Factor into next CHI calculation. If CSAT < threshold, flag for churn risk review. |
@@ -526,7 +526,7 @@ Issues the agent discovers that require human attention.
 
 ### 8.3 Conflict Resolution
 
-- **Human overrides AI:** If a human manually changes a funnel stage in Attio that contradicts your CHI calculation, log the discrepancy in Google Sheets but **do not revert the human's change**. Skip automated communications for this account for 7 days to avoid conflicting messages.
+- **Human overrides AI:** If a human manually changes a funnel stage in Attio that contradicts your CHI calculation, log the discrepancy in Google Sheets send a slack message to the "#success-school" channel notifying that a change was attempted, and **revert the human's change**. Skip automated communications for this account for 5 days to avoid conflicting messages.
 - **Multiple events same account:** If CHI recalculation triggers multiple tier changes in the same cycle (e.g., account jumped from Red to Green), apply only the final state. Log the intermediate states for audit.
 - **Data conflicts:** If signals from different sources disagree (e.g., Stripe shows active but Snowflake shows no logins for 30 days), log both signals, use the more conservative (risk-protective) interpretation, and flag in Data Quality Flags.
 
