@@ -2,7 +2,7 @@
 
 > **Environment:** n8n Automation Platform
 > **Model:** Anthropic Claude (via n8n AI Agent node)
-> **Last Updated:** February 14, 2026
+> **Last Updated:** February 16, 2026
 > **Owner:** AI Operations Director, Edvisor Technologies
 
 ---
