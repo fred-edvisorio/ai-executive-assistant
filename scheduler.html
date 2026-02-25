@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Book a Meeting – Fred Edvisorio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    .slot-btn:hover { background-color: #4f46e5 !important; color: #fff !important; border-color: #4f46e5 !important; }
+    .day-btn:hover:not([disabled]) { background-color: #e0e7ff !important; }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-10 px-4">
+
+  <div id="root"></div>
+
+  <script>
+    // ── CONFIG (edit these to match your details) ─────────────────────────────
+    const OWNER_NAME  = 'Fred Edvisorio';
+    const OWNER_TITLE = 'Co-founder & CEO at Edvisor';
+    const DURATION    = 30;      // meeting length in minutes
+    const WORK_START  = 9;       // working hours start (24h)
+    const WORK_END    = 18;      // working hours end   (24h)
+
+    const DAY_LABELS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const MONTH_NAMES = ['January','February','March','April','May','June',
+                         'July','August','September','October','November','December'];
+
+    // ── STATE ─────────────────────────────────────────────────────────────────
+    let currentMonth = (() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; })();
+    let selectedDate  = null;
+    let selectedSlot  = null;
+    let bookedSlot    = null;
+    let step          = 'pick';          // 'pick' | 'info' | 'done'
+    let form          = { name:'', email:'', company:'' };
+    let formErrors    = {};
+
+    // ── SLOT GENERATION (simulates calendar data) ─────────────────────────────
+    function isSlotBusy(day, hour, minute) {
+      if (hour === 12) return true;                // lunch break
+      if (hour === 9 && minute === 0) return true; // morning standup
+      // Deterministic ~20% of slots appear "busy" (looks like real meetings)
+      const d = day.getDate(), m = day.getMonth(), t = hour * 2 + (minute >= 30 ? 1 : 0);
+      return (((d * 17 + m * 31 + t * 7) * 2654435761) >>> 0) % 5 === 0;
+    }
+
+    function generateSlots() {
+      const slots  = [];
+      const now    = new Date();
+      const today  = new Date(now); today.setHours(0,0,0,0);
+      const cutoff = new Date(now.getTime() + 30 * 60000); // 30-min lead time
+
+      for (let i = 0; i <= 30; i++) {
+        const day = new Date(today); day.setDate(today.getDate() + i);
+        if (day.getDay() === 0 || day.getDay() === 6) continue; // no weekends
+
+        for (let mins = WORK_START * 60; mins < WORK_END * 60; mins += DURATION) {
+          const h = Math.floor(mins / 60), m = mins % 60;
+          const start = new Date(day); start.setHours(h, m, 0, 0);
+          const end   = new Date(start.getTime() + DURATION * 60000);
+          if (start <= cutoff)         continue;
+          if (isSlotBusy(day, h, m)) continue;
+          slots.push({ start, end });
+        }
+      }
+      return slots;
+    }
+
+    const ALL_SLOTS      = generateSlots();
+    const AVAILABLE_KEYS = new Set(ALL_SLOTS.map(s => dateKey(s.start)));
+
+    function slotsForDate(date) {
+      return ALL_SLOTS.filter(s => isSameDay(s.start, date));
+    }
+
+    // ── DATE HELPERS ──────────────────────────────────────────────────────────
+    function isSameDay(a, b) {
+      return a.getFullYear() === b.getFullYear() &&
+             a.getMonth()    === b.getMonth()    &&
+             a.getDate()     === b.getDate();
+    }
+    function dateKey(d) { return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
+    function isToday(d) { return isSameDay(d, new Date()); }
+    function isPast(d)  { const t = new Date(); t.setHours(0,0,0,0); return d < t; }
+    function maxDate()  { const d = new Date(); d.setDate(d.getDate() + 30); d.setHours(0,0,0,0); return d; }
+
+    function monthDays(y, m) {
+      const days = [], d = new Date(y, m, 1);
+      while (d.getMonth() === m) { days.push(new Date(d)); d.setDate(d.getDate() + 1); }
+      return days;
+    }
+
+    function fmtTime(d) {
+      return d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true });
+    }
+    function fmtFull(d) {
+      return d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+    }
+    function fmtDayMonth(d) {
+      return d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+    }
+    function userTZ()  { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+    function initials(n) { return n.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase(); }
+    function esc(s)    {
+      return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── SVG ICONS ─────────────────────────────────────────────────────────────
+    const I = {
+      clock:    `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`,
+      video:    `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`,
+      calBig:   `<svg class="w-7 h-7 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`,
+      calSm:    `<svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>`,
+      clockSm:  `<svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`,
+      videoSm:  `<svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`,
+      chevL:    `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>`,
+      chevR:    `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`,
+      check:    `<svg class="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`,
+    };
+
+    // ── EVENT HANDLERS ────────────────────────────────────────────────────────
+    function selectDate(iso) {
+      selectedDate = new Date(iso);
+      selectedSlot = null;
+      render();
+    }
+
+    function selectSlot(idx) {
+      selectedSlot = window.__daySlots[idx];
+      step = 'info';
+      formErrors = {};
+      render();
+    }
+
+    function prevMonth() {
+      const prev      = new Date(currentMonth); prev.setMonth(prev.getMonth() - 1);
+      const thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
+      if (prev >= thisMonth) { currentMonth = prev; render(); }
+    }
+
+    function nextMonth() {
+      currentMonth = new Date(currentMonth);
+      currentMonth.setMonth(currentMonth.getMonth() + 1);
+      render();
+    }
+
+    function goBack() {
+      step = 'pick'; selectedSlot = null; formErrors = {};
+      render();
+    }
+
+    // Called on every keystroke — does NOT re-render (keeps typing smooth)
+    function updateForm(field, val) {
+      form[field] = val;
+      delete formErrors[field];
+    }
+
+    function submitForm(e) {
+      e.preventDefault();
+      const errs = {};
+      if (!form.name.trim())    errs.name    = 'Name is required';
+      if (!form.email.trim())   errs.email   = 'Email is required';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+                                errs.email   = 'Enter a valid email address';
+      if (!form.company.trim()) errs.company = 'Company is required';
+
+      formErrors = errs;
+      if (Object.keys(errs).length > 0) { render(); return; }
+
+      // ✅ Simulate a successful booking
+      bookedSlot = selectedSlot;
+      step = 'done';
+      render();
+    }
+
+    // ── RENDER ────────────────────────────────────────────────────────────────
+    function render() {
+      const y    = currentMonth.getFullYear();
+      const m    = currentMonth.getMonth();
+      const days = monthDays(y, m);
+      const pad  = new Date(y, m, 1).getDay();
+
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const maxD = maxDate();
+
+      function isSelectable(d) {
+        const dk = new Date(d); dk.setHours(0,0,0,0);
+        return dk >= todayStart && dk <= maxD
+            && d.getDay() !== 0 && d.getDay() !== 6
+            && AVAILABLE_KEYS.has(dateKey(d));
+      }
+
+      const canGoPrev = (() => {
+        const prev = new Date(y, m - 1, 1);
+        return prev >= new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+      })();
+
+      // ─ Header (shared) ───────────────────────────────────────────────────
+      const header = `
+        <div class="bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-8 text-white">
+          <div class="flex items-center gap-5">
+            <div class="w-16 h-16 rounded-full bg-white/20 border-2 border-white/30 flex items-center justify-center text-2xl font-bold shrink-0">
+              ${initials(OWNER_NAME)}
+            </div>
+            <div>
+              <p class="text-indigo-200 text-xs font-semibold uppercase tracking-widest mb-1">Book a meeting with</p>
+              <h1 class="text-2xl font-bold leading-tight">${esc(OWNER_NAME)}</h1>
+              <p class="text-indigo-200 text-sm mt-0.5">${esc(OWNER_TITLE)}</p>
+              <div class="flex flex-wrap items-center gap-4 mt-3 text-sm text-indigo-100">
+                <span class="flex items-center gap-1.5">${I.clock} ${DURATION} min</span>
+                <span class="flex items-center gap-1.5">${I.video} Google Meet</span>
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      // ─ Step: pick date & time ────────────────────────────────────────────
+      let body = '';
+
+      if (step === 'pick') {
+        const daySlots = selectedDate ? slotsForDate(selectedDate) : [];
+        window.__daySlots = daySlots;
+
+        // Calendar day cells
+        const calCells = days.map(d => {
+          const sel   = selectedDate && isSameDay(d, selectedDate);
+          const avail = isSelectable(d);
+          const past  = isPast(d) && !isToday(d);
+          let cls = 'day-btn aspect-square rounded-xl text-sm font-medium transition-all flex items-center justify-center ';
+          if (sel)        cls += 'bg-indigo-600 text-white shadow-md shadow-indigo-200 ';
+          else if (avail) cls += 'bg-indigo-50 text-indigo-700 cursor-pointer ';
+          else if (past)  cls += 'text-gray-200 cursor-not-allowed ';
+          else            cls += 'text-gray-300 cursor-not-allowed ';
+          if (isToday(d) && !sel) cls += 'ring-2 ring-indigo-400 ring-offset-1 ';
+          return `<button class="${cls}" ${avail ? `onclick="selectDate('${d.toISOString()}')"` : 'disabled'}>${d.getDate()}</button>`;
+        }).join('');
+
+        // Right panel: time slots or prompt
+        const slotsPanel = !selectedDate
+          ? `<div class="flex flex-col items-center justify-center h-full text-center py-16">
+               <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">${I.calBig}</div>
+               <p class="text-gray-500 text-sm">Select a date to see available times</p>
+             </div>`
+          : daySlots.length === 0
+          ? `<p class="text-gray-400 text-sm text-center py-10">No available slots on this date</p>`
+          : `<h3 class="text-base font-semibold text-gray-900 mb-1">${fmtDayMonth(selectedDate)}</h3>
+             <p class="text-xs text-gray-400 mb-5">${daySlots.length} slot${daySlots.length !== 1 ? 's' : ''} available</p>
+             <div class="space-y-2 overflow-y-auto pr-1" style="max-height:20rem">
+               ${daySlots.map((s, i) => `
+                 <button onclick="selectSlot(${i})" class="slot-btn w-full py-3 px-4 rounded-xl border-2 border-indigo-200 text-indigo-700 font-medium text-sm transition-all">
+                   ${fmtTime(s.start)} – ${fmtTime(s.end)}
+                 </button>`).join('')}
+             </div>`;
+
+        body = `
+          <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+
+            <!-- Calendar -->
+            <div class="p-8">
+              <div class="flex items-center justify-between mb-6">
+                <h2 class="text-base font-semibold text-gray-900">${MONTH_NAMES[m]} ${y}</h2>
+                <div class="flex gap-1">
+                  <button onclick="prevMonth()" ${!canGoPrev ? 'disabled' : ''} class="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-25 disabled:cursor-not-allowed transition">${I.chevL}</button>
+                  <button onclick="nextMonth()" class="p-2 rounded-lg hover:bg-gray-100 transition">${I.chevR}</button>
+                </div>
+              </div>
+              <div class="grid grid-cols-7 mb-1">
+                ${DAY_LABELS.map(d => `<div class="text-center text-xs font-medium text-gray-400 py-1">${d}</div>`).join('')}
+              </div>
+              <div class="grid grid-cols-7 gap-1">
+                ${Array.from({length: pad}).map(() => '<div></div>').join('')}
+                ${calCells}
+              </div>
+            </div>
+
+            <!-- Time Slots -->
+            <div class="p-8">${slotsPanel}</div>
+          </div>`;
+
+      // ─ Step: enter info ──────────────────────────────────────────────────
+      } else if (step === 'info') {
+
+        function field(name, label, type, val, err, placeholder) {
+          return `
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                ${label} <span class="text-red-500">*</span>
+              </label>
+              <input type="${type}" value="${esc(val)}"
+                oninput="updateForm('${name}', this.value)"
+                placeholder="${placeholder}"
+                class="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 transition ${err ? 'border-red-400 bg-red-50' : 'border-gray-200'}" />
+              ${err ? `<p class="text-red-500 text-xs mt-1">${err}</p>` : ''}
+            </div>`;
+        }
+
+        body = `
+          <div class="p-8 max-w-lg mx-auto">
+            <button onclick="goBack()" class="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 mb-8 transition">
+              ${I.chevL} Back
+            </button>
+
+            ${selectedSlot ? `
+              <div class="bg-indigo-50 rounded-2xl p-4 mb-8">
+                <p class="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-2">Your selected time</p>
+                <p class="font-semibold text-gray-900">${fmtFull(selectedSlot.start)}</p>
+                <p class="text-indigo-700 text-sm mt-0.5">
+                  ${fmtTime(selectedSlot.start)} – ${fmtTime(selectedSlot.end)}
+                  <span class="text-gray-400 ml-1">(${userTZ()})</span>
+                </p>
+              </div>` : ''}
+
+            <h2 class="text-xl font-bold text-gray-900 mb-6">Your Information</h2>
+
+            <form onsubmit="submitForm(event)" novalidate class="space-y-5">
+              ${field('name',    'Full Name',     'text',  form.name,    formErrors.name,    'Jane Doe')}
+              ${field('email',   'Email Address', 'email', form.email,   formErrors.email,   'jane@acme.com')}
+              ${field('company', 'Company',       'text',  form.company, formErrors.company, 'Acme Inc.')}
+              <button type="submit"
+                class="w-full py-4 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 transition shadow-lg shadow-indigo-100 mt-2">
+                Confirm Meeting →
+              </button>
+            </form>
+          </div>`;
+
+      // ─ Step: confirmation ────────────────────────────────────────────────
+      } else {
+        body = `
+          <div class="py-16 px-8 text-center">
+            <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              ${I.check}
+            </div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">You&rsquo;re booked!</h2>
+            <p class="text-gray-500 mb-10">
+              A calendar invite has been sent to
+              <span class="font-medium text-gray-700">${esc(form.email)}</span>
+            </p>
+
+            <div class="bg-gray-50 rounded-2xl p-6 max-w-sm mx-auto text-left space-y-4 mb-8">
+              <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Meeting Details</p>
+
+              <div class="flex items-start gap-3">
+                <span class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0 mt-0.5">${I.calSm}</span>
+                <div>
+                  <p class="font-semibold text-gray-900">${bookedSlot ? fmtFull(bookedSlot.start) : ''}</p>
+                  <p class="text-sm text-gray-500">
+                    ${bookedSlot ? fmtTime(bookedSlot.start) + ' – ' + fmtTime(bookedSlot.end) : ''}
+                    (${userTZ()})
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0">${I.clockSm}</span>
+                <p class="text-sm text-gray-700">${DURATION} minute meeting</p>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0">${I.videoSm}</span>
+                <span class="text-sm text-indigo-600 font-medium">Google Meet link will be in your calendar invite</span>
+              </div>
+            </div>
+
+            <p class="text-sm text-gray-400">We look forward to speaking with you!</p>
+          </div>`;
+      }
+
+      // Assemble full page
+      document.getElementById('root').innerHTML = `
+        <div class="max-w-5xl mx-auto">
+          <div class="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
+            ${header}
+            ${body}
+          </div>
+          <p class="text-center text-xs text-gray-400 mt-4">
+            All times shown in your local timezone (${userTZ()})
+          </p>
+        </div>`;
+    }
+
+    // Boot
+    render();
+  </script>
+</body>
+</html>
